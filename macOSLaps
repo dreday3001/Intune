@@ -1,0 +1,78 @@
+#!/bin/zsh
+
+# macOSLAPS Password Pull
+# Version 19.10.2023
+# Created by: Dean Hoile
+
+#!/bin/zsh
+
+# Define log file path
+#logFile="/Library/Logs/Microsoft/IntuneScripts/installLAPS/macOSLAPSGet.log"
+
+
+# Define the paths for password and expiration files
+passwordFile="/var/root/Library/Application Support/macOSLAPS-password"
+expirationFile="/var/root/Library/Application Support/macOSLAPS-expiration"
+
+cleanUp() {
+    for file in "$passwordFile" "$expirationFile"; do
+        if [[ -e "$file" ]]; then
+            rm "$file"
+        fi
+    done
+}
+
+# Clear existing files if they exist.
+cleanUp
+
+if [[ ! -x /usr/local/laps/macOSLAPS ]]; then
+    message="macOSLAPS not installed."
+    echo "$(date +"%Y-%m-%d %H:%M:%S") $message" | tee -a "$logFile"
+    exit 0
+else
+    # Determine managed vs. local settings (prefer managed over local)
+    if [ -f "/Library/Managed Preferences/edu.psu.macoslaps.plist" ]; then
+        plistLocation="/Library/Managed Preferences"
+    elif [ -f "/Library/Preferences/edu.psu.macoslaps.plist" ]; then
+        plistLocation="/Library/Preferences"
+    else
+        message="macOSLAPS installed but no preferences found."
+        echo "$(date +"%Y-%m-%d %H:%M:%S") $message" | tee -a "$logFile"
+        exit 0
+    fi
+
+    # Check if macOSLAPS is in AD mode
+    if [[ $(/usr/libexec/PlistBuddy -c "Print :Method" "$plistLocation/edu.psu.macoslaps.plist") == "AD" ]]; then
+        message="macOSLAPS running in AD mode."
+        echo "$(date +"%Y-%m-%d %H:%M:%S") $message" | tee -a "$logFile"
+        exit 0
+    fi
+
+    # Grab the password and expiration time
+    if ! /usr/local/laps/macOSLAPS -getPassword > /dev/null 2>&1; then
+        message="Error running macOSLAPS"
+        echo "$(date +"%Y-%m-%d %H:%M:%S") $message" | tee -a "$logFile"
+    fi
+
+    if [[ ! -e "$expirationFile" ]] || [[ ! -e "$passwordFile" ]]; then
+        message="Error reading password files!"
+        echo "$(date +"%Y-%m-%d %H:%M:%S") $message" | tee -a "$logFile"
+        cleanUp
+        exit 0
+    fi
+
+    # Read the password as a variable
+    localPassword=$(cat "$passwordFile")
+
+    message="Successfully retrieved the following password: $localPassword (expires $(cat $expirationFile))"
+    echo "$(date +"%Y-%m-%d %H:%M:%S") $message" | tee -a "$logFile"
+    cleanUp
+    exit 0
+fi
+
+# Read the password as variable
+passwordUUIDFile="/var/root/.GeneratedLAPSServiceName"
+passwordUUID=$(cat $passwordUUIDFile)
+localpassword=$(security find-generic-password -s "$passwordUUID" -w)
+echo "$localpassword"
+exit 0
